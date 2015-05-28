@@ -62,6 +62,7 @@
     <Compile Include="Monoid.fs" />
     <Compile Include="Fold.fs" />
     <Compile Include="Getter.fs" />
+    <Compile Include="Trampoline.fs" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="mscorlib" />
