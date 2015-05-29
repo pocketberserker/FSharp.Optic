@@ -71,6 +71,8 @@
     <Compile Include="Prism.fs" />
     <Compile Include="PSetter.fs" />
     <Compile Include="Setter.fs" />
+    <Compile Include="PTraversal.fs" />
+    <Compile Include="Traversal.fs" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="mscorlib" />
