@@ -65,6 +65,8 @@
     <Compile Include="Trampoline.fs" />
     <Compile Include="POptional.fs" />
     <Compile Include="Optional.fs" />
+    <Compile Include="PLens.fs" />
+    <Compile Include="Lens.fs" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="mscorlib" />
