@@ -69,6 +69,8 @@
     <Compile Include="Lens.fs" />
     <Compile Include="PPrism.fs" />
     <Compile Include="Prism.fs" />
+    <Compile Include="PSetter.fs" />
+    <Compile Include="Setter.fs" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="mscorlib" />
