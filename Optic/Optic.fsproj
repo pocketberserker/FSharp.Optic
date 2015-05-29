@@ -75,6 +75,7 @@
     <Compile Include="Traversal.fs" />
     <Compile Include="PIso.fs" />
     <Compile Include="Iso.fs" />
+    <Compile Include="Modules.fs" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="mscorlib" />

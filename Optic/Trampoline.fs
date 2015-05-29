@@ -63,3 +63,11 @@ and Codense<'A>(sub: Normal<obj>, cont: obj -> Trampoline<'A>) =
       | Choice2Of2 o -> lazy cont o)
   member __.BoxCodense() = Codense(sub, cont >> (fun x -> x.Box()))
   override this.Fold(_, gs) = gs this
+
+module Trampoline =
+
+  let purely a = Pure(a) :> Trampoline<_>
+
+  let inline bind f (t: Trampoline<_>) = t.Bind(f)
+
+  let map f t = bind (f >> purely) t
