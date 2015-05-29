@@ -67,6 +67,8 @@
     <Compile Include="Optional.fs" />
     <Compile Include="PLens.fs" />
     <Compile Include="Lens.fs" />
+    <Compile Include="PPrism.fs" />
+    <Compile Include="Prism.fs" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="mscorlib" />
