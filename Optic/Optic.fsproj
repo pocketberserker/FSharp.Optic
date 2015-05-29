@@ -73,6 +73,8 @@
     <Compile Include="Setter.fs" />
     <Compile Include="PTraversal.fs" />
     <Compile Include="Traversal.fs" />
+    <Compile Include="PIso.fs" />
+    <Compile Include="Iso.fs" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="mscorlib" />
