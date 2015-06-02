@@ -71,3 +71,7 @@ module Trampoline =
   let inline bind f (t: Trampoline<_>) = t.Bind(f)
 
   let map f t = bind (f >> purely) t
+
+  let apply lf t = bind (fun f -> map f t) lf
+
+  let inline run (t: Trampoline<_>) = t.Run()

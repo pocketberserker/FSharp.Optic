@@ -1,9 +1,38 @@
 ﻿namespace Optic
 
-module Choice =
+[<AutoOpen>]
+module internal Prelude =
 
-  // right bias
-  let map f = function
+  let inline konst a _ = a
+  let inline flip f a b = f b a
+
+module Function =
+
+  let bind f g = fun m -> f (g m) m
+
+  let apply2 cab ca = bind (fun f -> ca >> f) cab
+
+module List =
+
+  let inline singleton a = [a]
+
+  let apply a l = a |> List.collect (flip List.map l)
+
+module internal Option =
+
+  let getOrElse defaultValue = function
+  | Some v -> v
+  | None -> defaultValue
+
+  let apply fo o = fo |> Option.bind (fun f -> o |> Option.map f)
+
+module internal Choice =
+
+  let leftMap f = function
+  | Choice1Of2 l -> Choice1Of2 (f l)
+  | Choice2Of2 r -> Choice2Of2 r
+
+  let rightMap f = function
   | Choice1Of2 l -> Choice1Of2 l
   | Choice2Of2 r -> Choice2Of2 (f r)
 
@@ -11,76 +40,15 @@ module Choice =
   | Choice1Of2 l -> Choice1Of2 (f l)
   | Choice2Of2 r -> Choice2Of2 (g r)
 
-module POptional =
+  let rightBind f = function
+  | Choice1Of2 l -> Choice1Of2 l
+  | Choice2Of2 r -> f r
 
-  let inline modify f (p: POptional<_, _, _, _>) = p.Modify(f)
-  let inline modifyChoiceF f (p: POptional<_, _, _, _>) = p.ModifyChoiceF(f)
-  let inline modifyOptionF f (p: POptional<_, _, _, _>) = p.ModifyOptionF(f)
-  let inline modifyListF f (p: POptional<_, _, _, _>) = p.ModifyListF(f)
-  let inline modifyTrampolineF f (p: POptional<_, _, _, _>) = p.ModifyTrampolineF(f)
-  let inline getOrModify s (p: POptional<_, _, _, _>) = p.GetOrModify(s)
-  let inline set b (p: POptional<_, _, _, _>) = p.Set(b)
-  let inline getOption s (p: POptional<_, _, _, _>) = p.GetOption(s)
+  let fold f g = function
+  | Choice1Of2 l -> f l
+  | Choice2Of2 r -> g r
 
-  let modifyOption f p = fun s -> getOption s p |> Option.map f
-  let setOption b p = modifyOption (fun _ -> b) p
-  let isMatching s p = getOption s p |> Option.isSome
-
-  let poptional getOrModify set = { new POptional<_, _, _, _> with
-    member __.GetOrModify(s) = getOrModify s
-    member __.Set(a) = set a
-    member this.GetOption(s) =
-      match this.GetOrModify(s) with
-      | Choice1Of2 _ -> None
-      | Choice2Of2 r -> Some r
-    member this.ModifyFunctionF(f) = fun s ->
-      match this.GetOrModify(s) with
-      | Choice1Of2 l -> fun _ -> l
-      | Choice2Of2 a -> (fun b -> this.Set(b) s) << f a
-    member this.ModifyTrampolineF(f) = fun s ->
-      match this.GetOrModify(s) with
-      | Choice1Of2 l -> Trampoline.purely l
-      | Choice2Of2 r -> f r |> Trampoline.map (fun b -> this.Set(b) s)
-    member this.ModifyOptionF(f) = fun s ->
-      match this.GetOrModify(s) with
-      | Choice1Of2 l -> Some l
-      | Choice2Of2 r -> f r |> Option.map (fun b -> this.Set(b) s)
-    member this.ModifyListF(f) = fun s ->
-      match this.GetOrModify(s) with
-      | Choice1Of2 l ->  [l]
-      | Choice2Of2 r -> f r |> List.map (fun b -> this.Set(b) s)
-    member this.ModifyChoiceF(f) = fun s ->
-      match this.GetOrModify(s) with
-      | Choice1Of2 l -> Choice2Of2 l
-      | Choice2Of2 t -> f t |> Choice.map (fun b -> this.Set(b) s)
-    member this.Modify(f) = fun s ->
-      match this.GetOrModify(s) with
-      | Choice1Of2 l ->  l
-      | Choice2Of2 r -> set (f r) s
-  }
-
-module Optional =
-
-  let inline modify f (p: Optional<_, _>) = p.Modify(f)
-  let inline modifyChoiceF f (p: Optional<_, _>) = p.ModifyChoiceF(f)
-  let inline modifyOptionF f (p: Optional<_, _>) = p.ModifyOptionF(f)
-  let inline modifyListF f (p: Optional<_, _>) = p.ModifyListF(f)
-  let inline modifyTrampolineF f (p: Optional<_, _>) = p.ModifyTrampolineF(f)
-  let inline getOrModify s (p: Optional<_, _>) = p.GetOrModify(s)
-  let inline set b (p: Optional<_, _>) = p.Set(b)
-  let inline getOption s (p: Optional<_, _>) = p.GetOption(s)
-
-module Getter =
-
-  let inline getter f = Getter.Getter(f)
-  let inline get s (g: Getter<_, _>) = g.Get(s)
-  let inline sum other (g: Getter<_, _>) = g.Sum(other)
-  let inline product other (g: Getter<_, _>) = g.Product(other)
-  let inline first (g: Getter<_, _>) = g.First()
-  let inline second (g: Getter<_, _>) = g.Second()
-  let inline asFold (g: Getter<_, _>) = g.AsFold()
-  let inline composeFold other (g: Getter<_, _>) = g.ComposeFold(other)
-  let inline composeGetter other (g: Getter<_, _>) = g.ComposeGetter(other)
+  let rightApply a e = a |> rightBind (flip rightMap e)
 
 module Fold =
 
@@ -107,3 +75,362 @@ module Fold =
       | Choice1Of2 l -> f l
       | Choice2Of2 r -> f r
     }
+
+module PSetter =
+
+  let inline modify f (s: PSetter<_, _, _, _>) = s.Modify(f)
+  let inline set b (s: PSetter<_, _, _, _>) = s.Set(b)
+
+  let psetter modify = { new PSetter<_, _, _, _> with
+    member __.Modify(f) = modify f
+    member __.Set(b) = modify (konst b) }
+
+  let sum this other = psetter (fun f e -> e |> Choice.bimap (modify f this) (modify f other))
+
+  let codiagonal<'S, 'T> = psetter (fun (f: 'S -> 'T) e -> e |> Choice.bimap f f)
+
+  let composeSetter this other = { new PSetter<_, _, _, _> with
+    member __.Modify(f) = this |> modify (other |> modify f)
+    member __.Set(b) = modify (set b other) this }
+
+module Setter =
+
+  let inline modify f (s: Setter<_, _>) = s.Modify(f)
+  let inline set b (s: Setter<_, _>) = s.Set(b)
+
+  let setter modify = { PSetter = PSetter.psetter modify }
+  let sum this other = { PSetter = PSetter.sum this other }
+
+  let codiagonal<'S> = { PSetter = PSetter.codiagonal<'S, 'S> }
+
+  let composeSetter this other = { PSetter = PSetter.composeSetter this other }
+
+module Getter =
+
+  let inline getter f = Getter.Getter(f)
+  let inline get s (g: Getter<_, _>) = g.Get(s)
+  let inline sum other (g: Getter<_, _>) = g.Sum(other)
+  let inline product other (g: Getter<_, _>) = g.Product(other)
+  let inline fst (g: Getter<_, _>) = g.First()
+  let inline snd (g: Getter<_, _>) = g.Second()
+  let inline toFold (g: Getter<_, _>) = g.ToFold()
+  let inline composeFold other (g: Getter<_, _>) = g.ComposeFold(other)
+  let inline composeGetter other (g: Getter<_, _>) = g.ComposeGetter(other)
+  let codiagonal<'A> = getter (function | Choice1Of2 (a: 'A) -> a | Choice2Of2 a -> a)
+
+module PTraversal =
+
+  let inline modifyTrampolineF f (t: PTraversal<_, _, _, _>) = t.ModifyTrampolineF(f)
+  let inline modifyFunctionF f (t: PTraversal<_, _, _, _>) = t.ModifyFunctionF(f)
+  let inline modifyListF f (t: PTraversal<_, _, _, _>) = t.ModifyListF(f)
+  let inline modifyChoiceF f (t: PTraversal<_, _, _, _>) = t.ModifyChoiceF(f)
+  let inline modifyOptionF f (t: PTraversal<_, _, _, _>) = t.ModifyOptionF(f)
+  let inline foldMap m f (t: PTraversal<_, _, _, _>) = t.FoldMap(m, f)
+  let inline fold m t = foldMap m id t
+  let getAll s t = foldMap Monoid.list List.singleton t s
+  let find pred t = foldMap Monoid.option (fun a -> if pred a then Some a else None) t
+  let headOption s t = find (konst true) t s
+  let exists pred t = foldMap Monoid.disjunction pred t
+  let forall pred t = foldMap Monoid.conjunction pred t
+  let inline modify f (t: PTraversal<_, _, _, _>) = t.Modify(f)
+  let set b t = modify (konst b) t
+
+  let sum this other = { new PTraversal<_, _, _, _> with
+    member __.FoldMap(m, f) = Choice.fold (foldMap m f this) (foldMap m f other)
+    member __.Modify(f) =
+      Choice.fold (fun s -> modify f this s |> Choice1Of2)
+        (fun s1 -> modify f other s1 |> Choice2Of2)
+    member __.ModifyChoiceF(f) =
+      Choice.fold (fun s -> modifyChoiceF f this s |> Choice.rightMap Choice1Of2)
+        (fun s1 -> modifyChoiceF f other s1 |> Choice.rightMap Choice2Of2)
+    member __.ModifyFunctionF(f) =
+      Choice.fold (fun s -> modifyFunctionF f this s >> Choice1Of2)
+        (fun s1 -> modifyFunctionF f other s1 >> Choice2Of2)
+    member __.ModifyListF(f) =
+      Choice.fold (fun s -> modifyListF f this s |> List.map Choice1Of2)
+        (fun s1 -> modifyListF f other s1 |> List.map Choice2Of2)
+    member __.ModifyOptionF(f) =
+      Choice.fold (fun s -> modifyOptionF f this s |> Option.map Choice1Of2)
+        (fun s1 -> modifyOptionF f other s1 |> Option.map Choice2Of2)
+    member __.ModifyTrampolineF(f) =
+      Choice.fold (fun s -> modifyTrampolineF f this s |> Trampoline.map Choice1Of2)
+        (fun s1 -> modifyTrampolineF f other s1 |> Trampoline.map Choice2Of2)
+  }
+
+  let toFold this = { new Fold<_, _>() with
+    member __.FoldMap(m, f) = foldMap m f this }
+
+  let codiagonal = { new PTraversal<_, _, _, _> with
+    member __.FoldMap(_, f) = Choice.fold f f
+    member __.Modify(f) = Choice.bimap f f >> Choice.fold Choice1Of2 Choice2Of2
+    member __.ModifyChoiceF(f) =
+      Choice.bimap f f >> Choice.fold (Choice.rightMap Choice1Of2) (Choice.rightMap Choice2Of2)
+    member __.ModifyFunctionF(f) =
+      Choice.bimap f f >> Choice.fold (fun g -> g >> Choice1Of2) (fun g -> g >> Choice2Of2)
+    member __.ModifyListF(f) =
+      Choice.bimap f f >> Choice.fold (List.map Choice1Of2) (List.map Choice2Of2)
+    member __.ModifyOptionF(f) =
+      Choice.bimap f f >> Choice.fold (Option.map Choice1Of2) (Option.map Choice2Of2)
+    member __.ModifyTrampolineF(f) =
+      Choice.bimap f f >> Choice.fold (Trampoline.map Choice1Of2) (Trampoline.map Choice2Of2)
+  }
+
+  let ptraversal get1 get2 set = { new PTraversal<_, _, _, _> with
+    member __.FoldMap(m, f) = fun s -> m.Append(get1 s |> f, get2 s |> f)
+    member __.Modify(f) = fun s ->
+      get2 s
+      |> f
+      |> (get1 s |> f |> fun b1 b2 -> set b1 b2 s)
+    member __.ModifyChoiceF(f) = fun s ->
+      get2 s
+      |> f
+      |> Choice.rightApply (get1 s |> f |> Choice.rightMap (fun b1 b2 -> set b1 b2 s))
+    member __.ModifyFunctionF(f) = fun s ->
+      Function.apply2 (f (get1 s) >> fun b1 b2 -> set b1 b2 s) (f (get2 s))
+    member __.ModifyListF(f) = fun s ->
+      get2 s
+      |> f
+      |> List.apply (get1 s |> f |> List.map (fun b1 b2 -> set b1 b2 s))
+    member __.ModifyOptionF(f) = fun s ->
+      get2 s
+      |> f
+      |> Option.apply (get1 s |> f |> Option.map (fun b1 b2 -> set b1 b2 s))
+    member __.ModifyTrampolineF(f) = fun s ->
+      get2 s
+      |> f
+      |> Trampoline.apply (get1 s |> f |> Trampoline.map (fun b1 b2 -> set b1 b2 s))
+  }
+
+  let toSetter t = PSetter.psetter (fun f -> modify f t)
+
+  let composeFold other this = toFold this |> Fold.composeFold other
+
+module Traversal =
+
+  let inline modifyFunctionF f (o: Traversal<_, _>) = o.ModifyFunctionF(f)
+  let inline modifyOptionF f (o: Traversal<_, _>) = o.ModifyOptionF(f)
+  let inline modifyListF f (o: Traversal<_, _>) = o.ModifyListF(f)
+  let inline modifyTrampolineF f (o: Traversal<_, _>) = o.ModifyTrampolineF(f)
+  let inline modifyChoiceF f (o: Traversal<_, _>) = o.ModifyChoiceF(f)
+  let inline foldMap m f (o: Traversal<_, _>) = o.FoldMap(m, f)
+  let inline sum a b = { PTraversal = PTraversal.sum a b }
+  let inline toSetter o = { PSetter = PTraversal.toSetter o.PTraversal }
+  let codiagonal = { PTraversal = PTraversal.codiagonal }
+  let inline traversal get1 get2 set =
+    { PTraversal = PTraversal.ptraversal get1 get2 (fun a1 a2 _ -> set a1 a2) }
+
+module POptional =
+
+  let inline modify f (p: POptional<_, _, _, _>) = p.Modify(f)
+  let inline modifyChoiceF f (p: POptional<_, _, _, _>) = p.ModifyChoiceF(f)
+  let inline modifyFunctionF f (p: POptional<_, _, _, _>) = p.ModifyFunctionF(f)
+  let inline modifyOptionF f (p: POptional<_, _, _, _>) = p.ModifyOptionF(f)
+  let inline modifyListF f (p: POptional<_, _, _, _>) = p.ModifyListF(f)
+  let inline modifyTrampolineF f (p: POptional<_, _, _, _>) = p.ModifyTrampolineF(f)
+  let inline getOrModify s (p: POptional<_, _, _, _>) = p.GetOrModify(s)
+  let inline set b (p: POptional<_, _, _, _>) = p.Set(b)
+  let inline getOption s (p: POptional<_, _, _, _>) = p.GetOption(s)
+
+  let modifyOption f p = fun s -> getOption s p |> Option.map f
+  let setOption b p = modifyOption (konst b) p
+  let isMatching s p = getOption s p |> Option.isSome
+
+  let poptional getOrModify set = { new POptional<_, _, _, _> with
+    member __.GetOrModify(s) = getOrModify s
+    member __.Set(a) = set a
+    member this.GetOption(s) =
+      match this.GetOrModify(s) with
+      | Choice1Of2 _ -> None
+      | Choice2Of2 r -> Some r
+    member this.ModifyFunctionF(f) = fun s ->
+      match this.GetOrModify(s) with
+      | Choice1Of2 l -> konst l
+      | Choice2Of2 a -> (fun b -> this.Set(b) s) << f a
+    member this.ModifyTrampolineF(f) = fun s ->
+      match this.GetOrModify(s) with
+      | Choice1Of2 l -> Trampoline.purely l
+      | Choice2Of2 r -> f r |> Trampoline.map (fun b -> this.Set(b) s)
+    member this.ModifyOptionF(f) = fun s ->
+      match this.GetOrModify(s) with
+      | Choice1Of2 l -> Some l
+      | Choice2Of2 r -> f r |> Option.map (fun b -> this.Set(b) s)
+    member this.ModifyListF(f) = fun s ->
+      match this.GetOrModify(s) with
+      | Choice1Of2 l ->  [l]
+      | Choice2Of2 r -> f r |> List.map (fun b -> this.Set(b) s)
+    member this.ModifyChoiceF(f) = fun s ->
+      match this.GetOrModify(s) with
+      | Choice1Of2 l -> Choice2Of2 l
+      | Choice2Of2 t -> f t |> Choice.rightMap (fun b -> this.Set(b) s)
+    member this.Modify(f) = fun s ->
+      this.GetOrModify(s) |> Choice.fold id (f >> (flip set s))
+  }
+
+  let sum this other =
+    let f = function
+    | Choice1Of2 s -> getOrModify s this |> Choice.leftMap Choice1Of2
+    | Choice2Of2 s1 -> other |> getOrModify s1 |> Choice.leftMap Choice2Of2
+    poptional f (fun b e -> e |> Choice.bimap (set b this) (set b other))
+
+  let fst this =
+    let f (sc1, sc2) =
+      getOrModify sc1 this
+      |> Choice.bimap (fun t -> (t, sc2)) (fun a -> (a, sc2))
+    poptional f (fun (bc1, bc2) (s1, _) -> (set bc1 this s1, bc2))
+
+  let snd this =
+    let f (cs1, cs2) =
+      getOrModify cs2 this
+      |> Choice.bimap (fun t -> (cs1, t)) (fun a -> (cs1, a))
+    poptional f (fun (cb1, cb2) (_, s2) -> (cb1, set cb2 this s2))
+
+  let toFold this = { new Fold<_, _>() with
+    member __.FoldMap(m, f) = fun s ->
+      this |> getOption s |> Option.map f |> Option.getOrElse (Monoid.zero m)
+  }
+
+  let toSetter this = { new PSetter<_, _, _, _> with
+    member __.Modify(f) = modify f this
+    member __.Set(b) = set b this }
+
+  let toTraversal this = { new PTraversal<_, _, _, _> with
+    member __.FoldMap(m, f) = fun s ->
+      getOption s this |> Option.map f |> Option.getOrElse (Monoid.zero m)
+    member __.ModifyChoiceF(c) = modifyChoiceF c this
+    member __.ModifyFunctionF(f) = modifyFunctionF f this
+    member __.ModifyListF(l) = modifyListF l this
+    member __.ModifyOptionF(o) = modifyOptionF o this
+    member __.ModifyTrampolineF(t) = modifyTrampolineF t this
+    member __.Modify(t) = modify t this
+  }
+
+  let composeSetter this other = toSetter this |> PSetter.composeSetter other
+
+  let composeOptional this other = { new POptional<_, _, _, _> with
+    member __.GetOrModify(s) =
+      getOrModify s this
+      |> Choice.rightBind (fun a ->
+        getOrModify a other
+        |> Choice.bimap (fun b -> set b this s) id)
+    member __.Set(a) = modify (set a other) this
+    member __.GetOption(s) = getOption s this |> Option.bind (flip getOption other)
+    member __.ModifyFunctionF(f) = modifyFunctionF (modifyFunctionF f other) this
+    member __.ModifyTrampolineF(f) = modifyTrampolineF (modifyTrampolineF f other) this
+    member __.ModifyOptionF(f) = modifyOptionF (modifyOptionF f other) this
+    member __.ModifyListF(f) = modifyListF (modifyListF f other) this
+    member __.ModifyChoiceF(f) = modifyChoiceF (modifyChoiceF f other) this
+    member __.Modify(f) = modify (modify f other) this
+  }
+
+module Optional =
+
+  let inline modify f (p: Optional<_, _>) = p.Modify(f)
+  let inline modifyChoiceF f (p: Optional<_, _>) = p.ModifyChoiceF(f)
+  let inline modifyOptionF f (p: Optional<_, _>) = p.ModifyOptionF(f)
+  let inline modifyListF f (p: Optional<_, _>) = p.ModifyListF(f)
+  let inline modifyTrampolineF f (p: Optional<_, _>) = p.ModifyTrampolineF(f)
+  let inline getOrModify s (p: Optional<_, _>) = p.GetOrModify(s)
+  let inline set b (p: Optional<_, _>) = p.Set(b)
+  let inline getOption s (p: Optional<_, _>) = p.GetOption(s)
+
+  let toSetter this = { PSetter = this.POptional |> POptional.toSetter }
+  let toTraversal this = { PTraversal = this.POptional |> POptional.toTraversal }
+
+  let sum this other = { POptional = POptional.sum this other }
+  let fst this = { POptional = POptional.fst this }
+  let snd this = { POptional = POptional.snd this }
+
+  let optional getOrModify set = { POptional = POptional.poptional getOrModify set }
+
+module PLens =
+
+  let inline get s (l: PLens<_, _, _, _>) = l.Get(s)
+  let inline set b (l: PLens<_, _, _, _>) = l.Set(b)
+  let inline modify f (l: PLens<_, _, _, _>) = l.Modify(f)
+  let inline modifyFunctionF f (l: PLens<_, _, _, _>) = l.ModifyFunctionF(f)
+  let inline modifyChoiceF f (l: PLens<_, _, _, _>) = l.ModifyChoiceF(f)
+  let inline modifyListF f (l: PLens<_, _, _, _>) = l.ModifyListF(f)
+  let inline modifyOptionF f (l: PLens<_, _, _, _>) = l.ModifyOptionF(f)
+  let inline modifyTrampolineF f (l: PLens<_, _, _, _>) = l.ModifyTrampolineF(f)
+
+  let plens get set = { new PLens<_, _, _, _> with
+    member __.Get(s) = get s
+    member __.Set(b) = set b
+    member __.ModifyFunctionF(f) = fun s ->
+      f (get s) >> fun b -> set b s
+    member __.ModifyChoiceF(f) = fun s ->
+      f (get s) |> Choice.rightMap (fun a -> set a s)
+    member __.ModifyTrampolineF(f) = fun s ->
+      f (get s) |> Trampoline.map (fun a -> set a s)
+    member __.ModifyListF(f) = fun s ->
+      f (get s) |> List.map (fun a -> set a s)
+    member __.ModifyOptionF(f) = fun s ->
+      f (get s) |> Option.map (fun a -> set a s)
+    member this.Modify(f) = fun s -> this.Set(f (get s)) s
+  }
+
+  let sum this other = 
+    plens (Choice.fold (flip get this) (flip get other)) (fun b e -> Choice.bimap (set b this) (set b other) e)
+
+  let toFold l = { new Fold<_, _>() with
+    member __.FoldMap(_, f) = fun s -> f (get s l) }
+
+  let toGetter l = { new Getter<_, _>() with
+    member __.Get(s) = get s l }
+
+  let toSetter l = { new PSetter<_, _, _, _> with
+    member __.Set(b) = set b l
+    member __.Modify(f) = modify f l }
+
+  let toTraversal l = { new PTraversal<_, _, _, _> with
+    member __.ModifyFunctionF(f) = modifyFunctionF f l
+    member __.ModifyTrampolineF(f) = modifyTrampolineF f l
+    member __.ModifyOptionF(f) = modifyOptionF f l
+    member __.ModifyListF(f) = modifyListF f l
+    member __.ModifyChoiceF(f) = modifyChoiceF f l
+    member __.Modify(f) = modify f l
+    member __.FoldMap(_, f) = fun s -> get s l |> f
+  }
+
+  let toOptional l = { new POptional<_, _, _, _> with
+    member __.Set(b) = set b l
+    member __.GetOrModify(s) = Choice2Of2 (get s l)
+    member __.GetOption(s) = Some (get s l)
+    member __.ModifyFunctionF(f) = modifyFunctionF f l
+    member __.ModifyTrampolineF(f) = modifyTrampolineF f l
+    member __.ModifyOptionF(f) = modifyOptionF f l
+    member __.ModifyListF(f) = modifyListF f l
+    member __.ModifyChoiceF(f) = modifyChoiceF f l
+    member __.Modify(f) = modify f l
+  }
+
+  let composeLens this other = { new PLens<_, _, _, _> with
+    member __.Get(s) = get s this |> flip get other
+    member __.Set(b) = set b other |> flip modify this
+    member __.ModifyFunctionF(f) = modifyFunctionF (modifyFunctionF f other) this
+    member __.ModifyChoiceF(f) = modifyChoiceF (modifyChoiceF f other) this
+    member __.ModifyTrampolineF(f) = modifyTrampolineF (modifyTrampolineF f other) this
+    member __.ModifyListF(f) = modifyListF (modifyListF f other) this
+    member __.ModifyOptionF(f) = modifyOptionF (modifyOptionF f other) this
+    member this.Modify(f) = modify (modify f other) this
+  }
+
+  let composeFold this other = toFold this |> Fold.composeFold other
+  let composeSetter this other = toSetter this |> flip PSetter.composeSetter other
+
+module Lens =
+
+  let inline get s (l: Lens<_, _>) = l.Get(s)
+  let inline set b (l: Lens<_, _>) = l.Set(b)
+  let inline modify f (l: Lens<_, _>) = l.Modify(f)
+  let inline modifyFunctionF f (l: Lens<_, _>) = l.ModifyFunctionF(f)
+  let inline modifyChoiceF f (l: Lens<_, _>) = l.ModifyChoiceF(f)
+  let inline modifyListF f (l: Lens<_, _>) = l.ModifyListF(f)
+  let inline modifyOptionF f (l: Lens<_, _>) = l.ModifyOptionF(f)
+  let inline modifyTrampolineF f (l: Lens<_, _>) = l.ModifyTrampolineF(f)
+  let inline sum a b = { PLens = PLens.sum a.PLens b.PLens }
+  let inline composeSetter a b = { PSetter = PLens.composeSetter a.PLens b.PSetter }
+  let inline composeLens a b = { PLens = PLens.composeLens a.PLens b.PLens }
+  let inline toSetter l = { PSetter = PLens.toSetter l.PLens }
+  let inline toTraversal l = { PTraversal = PLens.toTraversal l.PLens }
+  let inline lens get set = { PLens = PLens.plens get set }
