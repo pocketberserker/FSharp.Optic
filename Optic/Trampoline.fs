@@ -33,10 +33,12 @@ and [<AbstractClass>] Normal<'A>() =
 
 and Suspend<'A>(suspension: Trampoline<'A>) =
   inherit Normal<'A>()
-  static member Suspend<'T>(a: unit -> Trampoline<'T>) = Suspend<'T>(a ()) :> Trampoline<'T>
   override __.FoldNormal(_, k) = k (lazy suspension)
   override __.Resume() = Choice1Of2 (lazy suspension)
   override this.Fold(n, _) = n this
+
+and Suspend =
+  static member Suspend<'T>(a: unit -> Trampoline<'T>) = Suspend<'T>(a ()) :> Trampoline<'T>
 
 and Pure<'A>(a: 'A) =
   inherit Normal<'A>()
