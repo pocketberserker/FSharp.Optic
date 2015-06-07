@@ -3,8 +3,8 @@
 [<AutoOpen>]
 module internal Prelude =
 
-  let inline konst a _ = a
-  let inline flip f a b = f b a
+  let konst a _ = a
+  let flip f a b = f b a
 
 module Function =
 
