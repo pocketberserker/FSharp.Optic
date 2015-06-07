@@ -54,6 +54,88 @@ module internal Choice =
   | Choice1Of2 _ -> None
   | Choice2Of2 r -> Some r
 
+module internal InternalPIso =
+
+  let piso get reverseGet = { new PIso<_, _, _, _> with
+    member __.Get(s) = get s
+    member __.ReverseGet(b) = reverseGet b
+    member this.Reverse() = { new PIso<_, _, _, _> with
+      member __.Get(s) = reverseGet s
+      member __.ReverseGet(b) = get b
+      member __.Reverse() = this
+    }
+  }
+
+  let pid<'S, 'T> = { new PIso<'S, 'T, 'S, 'T> with
+    member __.Get(s) = s
+    member __.ReverseGet(t) = t
+    member this.Reverse() = { new PIso<_, _, _, _> with
+      member __.Get(s) = s
+      member __.ReverseGet(t) = t
+      member __.Reverse() = this
+    }
+  }
+
+  let inline get s (i: PIso<_, _, _, _>) = i.Get(s)
+  let inline reverseGet b (i: PIso<_, _, _, _>) = i.ReverseGet(b)
+
+  let modifyFunctionF f i = fun s -> flip reverseGet i << (get s i |> f)
+  let modifyChoiceF f i = fun s -> get s i |> f |> Choice.rightMap (flip reverseGet i)
+  let modifyTrampolineF f i = fun s -> get s i |> f |> Trampoline.map (flip reverseGet i)
+  let modifyOptionF f i = fun s -> get s i |> f |> Option.map (flip reverseGet i)
+  let modifyListF f i = fun s -> get s i |> f |> List.map (flip reverseGet i)
+  let modify f i = fun s -> get s i |> f |>flip reverseGet i
+  let set b i = konst (reverseGet b i)
+
+  let toFold p = { new Fold<_, _>() with
+    member __.FoldMap(_, f) = fun s -> get s p |> f }
+
+  let toGetter p = { new Getter<_, _>() with
+    member __.Get(s) = get s p }
+
+  let toSetter p = { new PSetter<_, _, _, _> with
+    member __.Modify(f) = modify f p
+    member __.Set(b) = set b p }
+
+  let toTraversal p = { new PTraversal<_, _, _, _> with
+    member __.ModifyFunctionF(f) = modifyFunctionF f p
+    member __.ModifyTrampolineF(f) = modifyTrampolineF f p
+    member __.ModifyOptionF(f) = modifyOptionF f p
+    member __.ModifyListF(f) = modifyListF f p
+    member __.ModifyChoiceF(f) = modifyChoiceF f p
+    member __.Modify(f) = modify f p
+    member __.FoldMap(_, f) = fun s -> get s p |> f
+  }
+
+  let toOptional p = { new POptional<_, _, _, _> with
+    member __.Set(b) = set b p
+    member __.GetOrModify(s) = Choice2Of2 (get s p)
+    member __.GetOption(s) = Some (get s p)
+    member __.ModifyFunctionF(f) = modifyFunctionF f p
+    member __.ModifyTrampolineF(f) = modifyTrampolineF f p
+    member __.ModifyOptionF(f) = modifyOptionF f p
+    member __.ModifyListF(f) = modifyListF f p
+    member __.ModifyChoiceF(f) = modifyChoiceF f p
+    member __.Modify(f) = modify f p
+  }
+
+  let toPrism p = { new PPrism<_, _, _, _> with
+    member __.GetOrModify(s) = Choice2Of2 (get s p)
+    member __.ReverseGet(b) = reverseGet b p
+    member __.GetOption(s) = Some (get s p)
+  }
+
+  let toLens p = { new PLens<_, _, _, _> with
+    member __.Get(s) = get s p
+    member __.Set(b) = set b p
+    member __.ModifyFunctionF(f) = modifyFunctionF f p
+    member __.ModifyTrampolineF(f) = modifyTrampolineF f p
+    member __.ModifyOptionF(f) = modifyOptionF f p
+    member __.ModifyListF(f) = modifyListF f p
+    member __.ModifyChoiceF(f) = modifyChoiceF f p
+    member __.Modify(f) = modify f p
+  }
+
 module Fold =
 
   let inline foldMap m f (fold: Fold<_, _>) = fold.FoldMap(m, f)
@@ -207,7 +289,20 @@ module PTraversal =
 
   let toSetter t = PSetter.psetter (fun f -> modify f t)
 
-  let composeFold other this = toFold this |> Fold.composeFold other
+  let composeFold this other = toFold this |> Fold.composeFold other
+  let composeSetter this other = PSetter.composeSetter (toSetter this) other
+
+  let composeTraversal this other = { new PTraversal<_, _, _, _> with
+    member __.FoldMap(m, f) = foldMap m (foldMap m f other) this
+    member __.Modify(f) = modify (modify f other) this
+    member __.ModifyChoiceF(f) = modifyChoiceF (modifyChoiceF f other) this
+    member __.ModifyFunctionF(f) = modifyFunctionF (modifyFunctionF f other) this
+    member __.ModifyListF(f) = modifyListF (modifyListF f other) this
+    member __.ModifyOptionF(f) = modifyOptionF (modifyOptionF f other) this
+    member __.ModifyTrampolineF(f) = modifyTrampolineF (modifyTrampolineF f other) this
+  }
+
+  let composeIso this other = composeTraversal (InternalPIso.toTraversal other) this
 
 module Traversal =
 
@@ -222,6 +317,9 @@ module Traversal =
   let codiagonal = { PTraversal = PTraversal.codiagonal }
   let inline traversal get1 get2 set =
     { PTraversal = PTraversal.ptraversal get1 get2 (fun a1 a2 _ -> set a1 a2) }
+
+  let composeSetter this other = { PSetter = PTraversal.composeSetter this.PTraversal other.PSetter }
+  let composeTraversal this other = { PTraversal = PTraversal.composeTraversal this.PTraversal other.PTraversal }
 
 module POptional =
 
@@ -326,6 +424,8 @@ module POptional =
     member __.Modify(f) = modify (modify f other) this
   }
 
+  let composeIso this other = composeOptional (InternalPIso.toOptional other) this
+
 module Optional =
 
   let inline modify f (p: Optional<_, _>) = p.Modify(f)
@@ -345,6 +445,8 @@ module Optional =
   let snd this = { POptional = POptional.snd this }
 
   let optional getOrModify set = { POptional = POptional.poptional getOrModify set }
+
+  let composeIso this other = { POptional = POptional.composeIso this.POptional other.PIso }
 
 module PLens =
 
@@ -538,3 +640,79 @@ module Prism =
   let composeOptional this other = { POptional = PPrism.composeOptional this.PPrism other.POptional }
   let composePrism this other = { PPrism = PPrism.composePrism this.PPrism other.PPrism }
   let composeLens this other = { POptional = PPrism.composeLens this.PPrism other.PLens }
+
+module PIso =
+
+  open InternalPIso
+
+  let inline get s (i: PIso<_, _, _, _>) = i.Get(s)
+  let inline reverseGet b (i: PIso<_, _, _, _>) = i.ReverseGet(b)
+  let inline reverse (i: PIso<_, _, _, _>) = i.Reverse()
+
+  let modifyFunctionF f i = modifyFunctionF f i
+  let modifyChoiceF f i = modifyChoiceF f i
+  let modifyTrampolineF f i = modifyTrampolineF f i
+  let modifyOptionF f i = modifyOptionF f i
+  let modifyListF f i = modifyListF f i
+  let modify f i = modify f i
+  let set b i = konst (reverseGet b i)
+
+  let piso get reverseGet = piso get reverseGet
+
+  let pid<'S, 'T> = pid<'S, 'T>
+
+  let toFold p = toFold p
+  let toGetter p = toGetter p
+  let toSetter p = toSetter p
+  let toPrism p = toPrism p
+  let toTraversal p = toTraversal p
+  let toOptional p = toOptional p
+  let toLens p = toLens p
+
+  let product other this =
+    piso (fun (ss11, ss12) -> (get ss11 this, get ss12 other)) (fun (bb11, bb12) -> (reverseGet bb11 this, reverseGet bb12 other))
+
+  let fst p = piso (fun (sc1, sc2) -> (get sc1 p, sc2)) (fun (bc1, bc2) -> (reverseGet bc1 p, bc2))
+  let snd p = piso (fun (cs1, cs2) -> (cs1, get cs2)) (fun (cb1, cb2) -> (cb1, reverseGet cb2 p))
+
+  let composeFold this other = toFold this |> Fold.composeFold other
+  let composeGetter this other = Getter.composeGetter (toGetter this) other
+  let composeSetter this other = PSetter.composeSetter (toSetter this) other
+  let composeOptional this other = POptional.composeOptional (toOptional this) other
+  let composePrism this other = PPrism.composePrism (toPrism this) other
+  let composeLens this other = PLens.composeLens (toLens this) other
+
+  let composeIso this other = { new PIso<_, _, _, _> with
+    member __.Get(s) = get (get s this) other
+    member __.ReverseGet(b) = reverseGet (reverseGet b other) this
+    member x.Reverse() = { new PIso<_, _, _, _> with
+      member __.Get(s) = reverseGet (reverseGet s other) this
+      member __.ReverseGet(b) = get (get b this) other 
+      member __.Reverse() = x
+    }
+  }
+
+module Iso =
+
+  let inline get s (i: Iso<_, _>) = i.Get(s)
+  let inline reverseGet b (i: Iso<_, _>) = i.ReverseGet(b)
+  let inline reverse (i: Iso<_, _>) = i.Reverse()
+
+  let product other this = { PIso = PIso.product other.PIso this.PIso }
+  let fst p = { PIso = PIso.fst p.PIso }
+  let snd p = { PIso = PIso.snd p.PIso }
+
+  let iso get reverseGet = { PIso = PIso.piso get reverseGet }
+  let id<'S> = { PIso = PIso.pid<'S, 'S> }
+
+  let toSetter p = { PSetter = PIso.toSetter p.PIso }
+  let toTraversal p = { PTraversal = PIso.toTraversal p.PIso }
+  let toOptional p = { POptional = PIso.toOptional p.PIso }
+  let toPrism p = { PPrism = PIso.toPrism p.PIso }
+  let toLens p = { PLens = PIso.toLens p.PIso }
+
+  let composeSetter this other = { PSetter = PIso.composeSetter this.PIso other.PSetter }
+  let composeOptional this other = { POptional = PIso.composeOptional this.PIso other.POptional }
+  let composePrism this other = { PPrism = PIso.composePrism this.PIso other.PPrism }
+  let composeLens this other = Lens.composeLens (toLens this) other
+  let composeIso this other = { PIso = PIso.composeIso this.PIso other.PIso }
