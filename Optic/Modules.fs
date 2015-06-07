@@ -107,7 +107,7 @@ module Setter =
 
   let codiagonal<'S> = { PSetter = PSetter.codiagonal<'S, 'S> }
 
-  let composeSetter this other = { PSetter = PSetter.composeSetter this other }
+  let composeSetter this other = { PSetter = PSetter.composeSetter this.PSetter other.PSetter }
 
 module Getter =
 
