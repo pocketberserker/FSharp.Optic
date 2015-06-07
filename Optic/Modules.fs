@@ -140,7 +140,7 @@ module Fold =
 
   let inline foldMap m f (fold: Fold<_, _>) = fold.FoldMap(m, f)
   let inline fold m (f: Fold<_, _>) = f.Fold(m)
-  let inline composeFold other (this: Fold<_, _>) = this.ComposeFold(other)
+  let inline composeFold (this: Fold<_, _>) other = this.ComposeFold(other)
 
   let getAll s f = foldMap Monoid.list (fun x -> [x]) f s
 
@@ -289,7 +289,7 @@ module PTraversal =
 
   let toSetter t = PSetter.psetter (fun f -> modify f t)
 
-  let composeFold this other = toFold this |> Fold.composeFold other
+  let composeFold this other = Fold.composeFold (toFold this) other
   let composeSetter this other = PSetter.composeSetter (toSetter this) other
 
   let composeTraversal this other = { new PTraversal<_, _, _, _> with
@@ -521,7 +521,7 @@ module PLens =
     member this.Modify(f) = modify (modify f other) this
   }
 
-  let composeFold this other = toFold this |> Fold.composeFold other
+  let composeFold this other = Fold.composeFold (toFold this) other
   let composeSetter this other = toSetter this |> flip PSetter.composeSetter other
 
 module Lens =
@@ -614,7 +614,7 @@ module PPrism =
     member __.ReverseGet(b) = reverseGet b
     member __.GetOption(s) = getOrModify s |> Choice.rightToOption }
 
-  let composeFold this other = toFold this |> Fold.composeFold other
+  let composeFold this other = Fold.composeFold (toFold this) other
   let composeSetter this other = PSetter.composeSetter (toSetter this) other
   let composeOptional this other = POptional.composeOptional (toOptional this) other
   let composeLens this other = POptional.composeOptional (toOptional this) (PLens.toOptional other)
@@ -675,7 +675,7 @@ module PIso =
   let fst p = piso (fun (sc1, sc2) -> (get sc1 p, sc2)) (fun (bc1, bc2) -> (reverseGet bc1 p, bc2))
   let snd p = piso (fun (cs1, cs2) -> (cs1, get cs2)) (fun (cb1, cb2) -> (cb1, reverseGet cb2 p))
 
-  let composeFold this other = toFold this |> Fold.composeFold other
+  let composeFold this other = Fold.composeFold (toFold this) other
   let composeGetter this other = Getter.composeGetter (toGetter this) other
   let composeSetter this other = PSetter.composeSetter (toSetter this) other
   let composeOptional this other = POptional.composeOptional (toOptional this) other
