@@ -1,0 +1,19 @@
+version: 0.1.0.{build}
+
+branches:
+  except:
+    - gh-pages
+
+skip_tags: true
+
+skip_commits:
+  message: \[(ci skip|skip ci)\].*
+
+clone_depth: 50
+
+configuration:
+  - Release
+
+test_script:
+  - .\.nuget\NuGet.exe Install Persimmon.Console -Pre -OutputDirectory packages -ExcludeVersion
+  - ps: .\packages\Persimmon.Console\tools\Persimmon.Console.exe --parallel .\Optic.Tests\bin\$env:configuration\Optic.Tests.dll
