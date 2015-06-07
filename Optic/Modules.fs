@@ -50,6 +50,10 @@ module internal Choice =
 
   let rightApply a e = a |> rightBind (flip rightMap e)
 
+  let rightToOption = function
+  | Choice1Of2 _ -> None
+  | Choice2Of2 r -> Some r
+
 module Fold =
 
   let inline foldMap m f (fold: Fold<_, _>) = fold.FoldMap(m, f)
@@ -434,3 +438,103 @@ module Lens =
   let inline toSetter l = { PSetter = PLens.toSetter l.PLens }
   let inline toTraversal l = { PTraversal = PLens.toTraversal l.PLens }
   let inline lens get set = { PLens = PLens.plens get set }
+
+module PPrism =
+
+  let inline getOrModify s (p: PPrism<_, _, _, _>) = p.GetOrModify(s)
+  let inline getOption s (p: PPrism<_, _, _, _>) = p.GetOption(s)
+  let inline reverseGet s (p: PPrism<_, _, _, _>) = p.ReverseGet(s)
+
+  let modifyFunctionF f p = fun s  ->
+    getOrModify s p
+    |> Choice.fold konst (fun a -> f a >> flip reverseGet p)
+
+  let modifyChoiceF f p = fun s  ->
+    getOrModify s p
+    |> Choice.fold Choice2Of2 (f >> Choice.rightMap (flip reverseGet p))
+
+  let modifyTrampolineF f p = fun s  ->
+    getOrModify s p
+    |> Choice.fold Trampoline.purely (f >> Trampoline.map (flip reverseGet p))
+
+  let modifyListF f p = fun s  ->
+    getOrModify s p
+    |> Choice.fold List.singleton (f >> List.map (flip reverseGet p))
+
+  let modifyOptionF f p = fun s  ->
+    getOrModify s p
+    |> Choice.fold Some (f >> Option.map (flip reverseGet p))
+
+  let modify f p = fun s  -> getOrModify s p |> Choice.fold id (f >> flip reverseGet p)
+
+  let modifyOption f p = fun s  -> getOption s p |> Option.map (f >> flip reverseGet p)
+
+  let set b p = modify (konst b) p
+  let setOption b p = modifyOption (konst b) p
+
+  let isMatching s p = getOption s p |> Option.isSome
+
+  let re p = Getter.getter (flip reverseGet p)
+
+  let toFold p = { new Fold<_, _>() with
+    member __.FoldMap(m, f) = fun s ->
+      getOption s p |> Option.map f |> Option.getOrElse (Monoid.zero m) }
+
+  let toSetter p = { new PSetter<_, _, _, _> with
+    member __.Modify(f) = modify f p
+    member __.Set(b) = set b p }
+
+  let toTraversal p = { new PTraversal<_, _, _, _> with
+    member __.ModifyFunctionF(f) = modifyFunctionF f p
+    member __.ModifyTrampolineF(f) = modifyTrampolineF f p
+    member __.ModifyOptionF(f) = modifyOptionF f p
+    member __.ModifyListF(f) = modifyListF f p
+    member __.ModifyChoiceF(f) = modifyChoiceF f p
+    member __.Modify(f) = modify f p
+    member __.FoldMap(m, f) = fun s ->
+      getOption s p |> Option.map f |> Option.getOrElse (Monoid.zero m)
+  }
+
+  let toOptional p = { new POptional<_, _, _, _> with
+    member __.Set(b) = set b p
+    member __.GetOrModify(s) = getOrModify s p
+    member __.GetOption(s) = getOption s p
+    member __.ModifyFunctionF(f) = modifyFunctionF f p
+    member __.ModifyTrampolineF(f) = modifyTrampolineF f p
+    member __.ModifyOptionF(f) = modifyOptionF f p
+    member __.ModifyListF(f) = modifyListF f p
+    member __.ModifyChoiceF(f) = modifyChoiceF f p
+    member __.Modify(f) = modify f p
+  }
+
+  let pprism getOrModify reverseGet = { new PPrism<_, _, _, _> with
+    member __.GetOrModify(s) = getOrModify s
+    member __.ReverseGet(b) = reverseGet b
+    member __.GetOption(s) = getOrModify s |> Choice.rightToOption }
+
+  let composeFold this other = toFold this |> Fold.composeFold other
+  let composeSetter this other = PSetter.composeSetter (toSetter this) other
+  let composeOptional this other = POptional.composeOptional (toOptional this) other
+  let composeLens this other = POptional.composeOptional (toOptional this) (PLens.toOptional other)
+
+  let composePrism this other = { new PPrism<_, _, _, _> with
+    member __.GetOrModify(s) =
+      getOrModify s this
+      |> Choice.rightBind (flip getOrModify other >> Choice.bimap (fun b -> set b this s) id)
+    member __.ReverseGet(d) = reverseGet (reverseGet d other) this
+    member __.GetOption(s) = getOption s this |> Option.bind (flip getOption other) }
+
+module Prism =
+
+  let inline getOrModify s (p: Prism< _, _>) = p.GetOrModify(s)
+  let inline getOption s (p: Prism<_, _>) = p.GetOption(s)
+  let inline reverseGet s (p: Prism<_, _>) = p.ReverseGet(s)
+
+  let toSetter p = { PSetter = PPrism.toSetter p.PPrism }
+  let toTraversal p = { PTraversal = PPrism.toTraversal p.PPrism }
+  let toOptional p = { POptional = PPrism.toOptional p.PPrism }
+
+  let composeSetter this other = { PSetter = PPrism.composeSetter this.PPrism other.PSetter }
+  let composeOptional this other = { POptional = PPrism.composeOptional this.PPrism other.POptional }
+  let composePrism this other = { PPrism = PPrism.composePrism this.PPrism other.PPrism }
+  let composeLens this other = { POptional = PPrism.composeLens this.PPrism other.PLens }
